@@ -1,19 +1,23 @@
 {
-  "name": "litecore-build",
+  "name": "okcore-build",
   "version": "0.5.5",
-  "description": "A helper for common tasks to build litecore modules'",
+  "description": "A helper for common tasks to build okcore modules'",
   "main": "index.js",
   "scripts": {
     "test": "gulp test"
   },
   "repository": {
     "type": "git",
-    "url": "git://github.com/litecoin-project/litecore-build"
+    "url": "git://github.com/okcashpro/okcore-build"
   },
   "keywords": [
-    "litecore"
+    "okcore"
   ],
   "contributors": [
+    {
+      "name": "oktoshi",
+      "email": "devteam@okcash.co"
+    },
     {
       "name": "Charlie Lee",
       "email": "coblee@litecoin.org"
@@ -37,9 +41,9 @@
   ],
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/litecoin-project/litecore-build/issues"
+    "url": "https://github.com/okcashpro/okcore-build/issues"
   },
-  "homepage": "https://github.com/litecoin-project/litecore-build",
+  "homepage": "https://github.com/okcashpro/okcore-build",
   "dependencies": {
     "brfs": "^1.2.0",
     "browserify": "~13.1.0",
