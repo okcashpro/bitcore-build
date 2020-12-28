@@ -1,16 +1,47 @@
+/**
+ * @file gulpfile.js
+ *
+ * Defines tasks that can be run on gulp.
+ *
+ * Summary: <ul>
+ * <li> `test` - runs all the tests on node and the browser (mocha and karma)
+ * <ul>
+ * <li> `test:node`
+ * <li> `test:node:nofail` - internally used for watching (due to bug on gulp-mocha)
+ * <li> `test:browser`
+ * </ul>`
+ * <li> `watch:test` - watch for file changes and run tests
+ * <ul>
+ * <li> `watch:test:node`
+ * <li> `watch:test:browser`
+ * </ul>`
+ * <li> `browser` - generate files needed for browser (browserify)
+ * <ul>
+ * <li> `browser:uncompressed` - build uncomprssed browser bundle (`litecore-*.js`)
+ * <li> `browser:compressed` - build compressed browser bundle (`litecore-*.min.js`)
+ * <li> `browser:maketests` - build `tests.js`, needed for testing without karma
+ * </ul>`
+ * <li> `lint` - run `jshint`
+ * <li> `coverage` - run `istanbul` with mocha to generate a report of test coverage
+ * <li> `coveralls` - updates coveralls info
+ * <li> `release` - automates release process (only for maintainers)
+ * </ul>
+ */
 'use strict';
 
 var gulp = require('gulp');
 
-var coveralls = require('@kollavarsham/gulp-coveralls');
-//var jshint = require('gulp-jshint');
+var coveralls = require('gulp-coveralls');
+var gutil = require('gulp-util');
+var jshint = require('gulp-jshint');
 var mocha = require('gulp-mocha');
 var rename = require('gulp-rename');
+var runsequence = require('run-sequence');
+runsequence.use(gulp);
 var shell = require('gulp-shell');
 var uglify = require('gulp-uglify');
-//var bump = require('gulp-bump');
-//var git = require('gulp-git');
-var fs = require('fs');
+var bump = require('gulp-bump');
+var git = require('gulp-git');
 
 function ignoreerror() {
   /* jshint ignore:start */ // using `this` in this context is weird 
@@ -19,65 +50,49 @@ function ignoreerror() {
 }
 
 function startGulp(name, opts) {
-  var task = {};
+
   opts = opts || {};
   var browser = !opts.skipBrowser;
-  var fullname = name ? 'bitcore-' + name : 'bitcore';
+  var fullname = name ? 'litecore-' + name : 'litecore';
   var files = ['lib/**/*.js'];
   var tests = ['test/**/*.js'];
   var alljs = files.concat(tests);
 
-  var buildPath = './node_modules/bitcore-build/';
+  var buildPath = './node_modules/litecore-build/';
   var buildModulesPath = buildPath + 'node_modules/';
   var buildBinPath = buildPath + 'node_modules/.bin/';
-
-  var browserifyPath = buildBinPath + 'browserify';
-  var karmaPath = buildBinPath + 'karma';
-  var platoPath = buildBinPath + 'plato';
-  var istanbulPath = buildBinPath + 'istanbul';
-  var mochaPath = buildBinPath + '_mocha';
-
-  // newer version of node? binaries are in lower level of node_module path
-  if (!fs.existsSync(browserifyPath)) {
-    browserifyPath = './node_modules/.bin/browserify';
-  } 
-
-  if (!fs.existsSync(karmaPath)) {
-    karmaPath = './node_modules/.bin/karma';
-  }
-
-  if (!fs.existsSync(istanbulPath)) {
-    istanbulPath = './node_modules/.bin/istanbul';
-  }
-
-  if (!fs.existsSync(platoPath)) {
-    platoPath = './node_modules/.bin/plato';
-  }
-
-  if (!fs.existsSync(mochaPath)) {
-    mochaPath = './node_modules/.bin/_mocha';
-  }
 
   /**
    * testing
    */
-  var testmocha = function () {
-    return gulp.src(tests).pipe(mocha({
+  var testmocha = function() {
+    return gulp.src(tests).pipe(new mocha({
       reporter: 'spec'
     }));
   };
 
-  task['test:karma'] = shell.task([
-    karmaPath + '  start ' + buildPath + 'karma.conf.js --single-run '
+  var testkarma = shell.task([
+    buildModulesPath + 'karma/bin/karma start ' + buildPath + 'karma.conf.js'
   ]);
 
-  task['test:node'] =  testmocha;
-  task['test:node:nofail'] =  function() {
+  gulp.task('test:node', testmocha);
+
+  gulp.task('test:node:nofail', function() {
     return testmocha().on('error', ignoreerror);
-  };
+  });
 
+  gulp.task('test:browser', ['browser:uncompressed', 'browser:maketests'], testkarma);
 
-  task['noop']= function() {};
+  if (browser) {
+    gulp.task('test', function(callback) {
+      runsequence(['test:node'], ['test:browser'], callback);
+    });
+  } else {
+    gulp.task('test', ['test:node']);
+  }
+
+  gulp.task('noop', function() {
+  });
 
   /**
    * file generation
@@ -87,16 +102,16 @@ function startGulp(name, opts) {
     var browserifyCommand;
 
     if (name !== 'lib') {
-      browserifyCommand = browserifyPath + ' --require ./index.js:' + fullname + ' --external bitcore-lib -o ' + fullname + '.js';
+      browserifyCommand = buildBinPath + 'browserify --require ./index.js:' + fullname + ' --external litecore-lib -o ' + fullname + '.js';
     } else {
-      browserifyCommand = browserifyPath + ' --require ./index.js:bitcore-lib -o bitcore-lib.js';
+      browserifyCommand = buildBinPath + 'browserify --require ./index.js:litecore-lib -o litecore-lib.js';
     }
 
-    task['browser:uncompressed'] = shell.task([
+    gulp.task('browser:uncompressed', shell.task([
       browserifyCommand
-    ]);
+    ]));
 
-    task['browser:uglify'] =function() {
+    gulp.task('browser:compressed', ['browser:uncompressed'], function() {
       return gulp.src(fullname + '.js')
         .pipe(uglify({
           mangle: true,
@@ -104,34 +119,33 @@ function startGulp(name, opts) {
         }))
         .pipe(rename(fullname + '.min.js'))
         .pipe(gulp.dest('.'))
-        .on('error', console.error);
-    };
+        .on('error', gutil.log);
+    });
 
-    task['browser:compressed'] =
-      gulp.series(task['browser:uncompressed'], task['browser:uglify']);
+    gulp.task('browser:maketests', shell.task([
+      'find test/ -type f -name "*.js" | xargs ' + buildBinPath + 'browserify -t brfs -o tests.js'
+    ]));
 
-    task['browser:maketests'] = shell.task([
-      'find test/ -type f -name "*.js" | xargs ' + browserifyPath + ' -t brfs -o tests.js'
-    ]);
-
-    task['browser'] = task['browser:compressed'];
+    gulp.task('browser', function(callback) {
+      runsequence(['browser:compressed'], callback);
+    });
   }
 
   /**
    * code quality and documentation
    */
 
-//  task['lint']= function() {
-//    return gulp.src(alljs)
-//      .pipe(jshint())
-//      .pipe(jshint.reporter('default'));
-//  };
+  gulp.task('lint', function() {
+    return gulp.src(alljs)
+      .pipe(jshint())
+      .pipe(jshint.reporter('default'));
+  });
 
-//  task['plato']= shell.task([platoPath + ' -d report -r -l .jshintrc -t ' + fullname + ' lib']);
+  gulp.task('plato', shell.task([buildBinPath + 'plato -d report -r -l .jshintrc -t ' + fullname + ' lib']));
 
-  task['coverage']= shell.task([istanbulPath + ' cover ' + mochaPath + ' -- --recursive']);
+  gulp.task('coverage', shell.task([buildBinPath + './istanbul cover ' + buildBinPath + '_mocha -- --recursive']));
 
-  task['coveralls'] = gulp.series(task['coverage'], function() {
+  gulp.task('coveralls', ['coverage'], function() {
     gulp.src('coverage/lcov.info').pipe(coveralls());
   });
 
@@ -139,213 +153,209 @@ function startGulp(name, opts) {
    * watch tasks
    */
 
-  task['watch:test'] = function() {
-    //// todo: only run tests that are linked to file changes by doing
-    //// something smart like reading through the require statements
-    return gulp.watch(alljs, gulp.series('test'));
-  };
-
-  task['watch:test:node']= function() {
-    //// todo: only run tests that are linked to file changes by doing
-    //// something smart like reading through the require statements
-    return gulp.watch(alljs, gulp.series('test:node'));
-  };
-
-  if (browser) {
-    task['watch:test:browser'], function() {
-      // todo: only run tests that are linked to file changes by doing
-      // something smart like reading through the require statements
-      return gulp.watch(alljs, task['test:browser']);
-   };
-  }
-
-  task['watch:coverage']= function() {
+  gulp.task('watch:test', function() {
     // todo: only run tests that are linked to file changes by doing
     // something smart like reading through the require statements
-    return gulp.watch(alljs, task[coverage]);
-  };
+    return gulp.watch(alljs, ['test']);
+  });
 
-  task['watch:lint']= function() {
-    //// todo: only lint files that are linked to file changes by doing
-    //// something smart like reading through the require statements
-    return gulp.watch(alljs, task[lint]);
-  };
+  gulp.task('watch:test:node', function() {
+    // todo: only run tests that are linked to file changes by doing
+    // something smart like reading through the require statements
+    return gulp.watch(alljs, ['test:node']);
+  });
 
   if (browser) {
-    task['watch:browser']= function() {
-      return gulp.watch(alljs, task[browser]);
-    };
+    gulp.task('watch:test:browser', function() {
+      // todo: only run tests that are linked to file changes by doing
+      // something smart like reading through the require statements
+      return gulp.watch(alljs, ['test:browser']);
+    });
+  }
+
+  gulp.task('watch:coverage', function() {
+    // todo: only run tests that are linked to file changes by doing
+    // something smart like reading through the require statements
+    return gulp.watch(alljs, ['coverage']);
+  });
+
+  gulp.task('watch:lint', function() {
+    // todo: only lint files that are linked to file changes by doing
+    // something smart like reading through the require statements
+    return gulp.watch(alljs, ['lint']);
+  });
+
+  if (browser) {
+    gulp.task('watch:browser', function() {
+      return gulp.watch(alljs, ['browser']);
+    });
   }
 
   /**
    * Release automation
    */
 
-  task['release:install']= shell.task([ 'npm install']);
+  gulp.task('release:install', function() {
+    return shell.task([
+      'npm install',
+    ]);
+  });
 
   var releaseFiles = ['./package.json'];
+  if (browser) {
+    releaseFiles.push('./bower.json');
+  }
 
-  //var bump_version = function(importance) {
-    //return gulp.src(releaseFiles)
-      //.pipe(bump({
-        //type: importance
-      //}))
-      //.pipe(gulp.dest('./'));
-  //};
+  var bump_version = function(importance) {
+    return gulp.src(releaseFiles)
+      .pipe(bump({
+        type: importance
+      }))
+      .pipe(gulp.dest('./'));
+  };
 
-  //var tempBranch = 'releases/' + new Date().getTime() + '-build';
-  //gulp.task('release:checkout-releases', function(cb) {
-    //git.branch(tempBranch, {
-      //args: ''
-    //}, function() {
-      //git.checkout(tempBranch, {
-        //args: ''
-      //}, cb);
-    //});
-  //});
+  var tempBranch = 'releases/' + new Date().getTime() + '-build';
+  gulp.task('release:checkout-releases', function(cb) {
+    git.branch(tempBranch, {
+      args: ''
+    }, function() {
+      git.checkout(tempBranch, {
+        args: ''
+      }, cb);
+    });
+  });
 
-  //gulp.task('release:cleanup', function(cb) {
-    //git.branch(tempBranch, {
-      //args: '-D'
-    //}, cb);
-  //});
+  gulp.task('release:cleanup', function(cb) {
+    git.branch(tempBranch, {
+      args: '-D'
+    }, cb);
+  });
 
-  //gulp.task('release:checkout-master', function(cb) {
-    //git.checkout('master', {
-      //args: ''
-    //}, cb);
-  //});
+  gulp.task('release:checkout-master', function(cb) {
+    git.checkout('master', {
+      args: ''
+    }, cb);
+  });
 
-  //gulp.task('release:sign-built-files', shell.task([
-    //'gpg --yes --out ' + fullname + '.js.sig --detach-sig ' + fullname + '.js',
-    //'gpg --yes --out ' + fullname + '.min.js.sig --detach-sig ' + fullname + '.min.js'
-  //]));
+  gulp.task('release:sign-built-files', shell.task([
+    'gpg --yes --out ' + fullname + '.js.sig --detach-sig ' + fullname + '.js',
+    'gpg --yes --out ' + fullname + '.min.js.sig --detach-sig ' + fullname + '.min.js'
+  ]));
 
-  //var buildFiles = ['./package.json'];
-  //var signatureFiles = [];
-  //if (browser) {
-    //buildFiles.push(fullname + '.js');
-    //buildFiles.push(fullname + '.js.sig');
-    //buildFiles.push(fullname + '.min.js');
-    //buildFiles.push(fullname + '.min.js.sig');
+  var buildFiles = ['./package.json'];
+  var signatureFiles = [];
+  if (browser) {
+    buildFiles.push(fullname + '.js');
+    buildFiles.push(fullname + '.js.sig');
+    buildFiles.push(fullname + '.min.js');
+    buildFiles.push(fullname + '.min.js.sig');
 
-    //buildFiles.push('./bower.json');
+    buildFiles.push('./bower.json');
 
-    //signatureFiles.push(fullname + '.js.sig');
-    //signatureFiles.push(fullname + '.min.js.sig');
-  //}
-  //var addFiles = function() {
-    //var pjson = require('../../package.json');
-    //return gulp.src(buildFiles)
-      //.pipe(git.add({
-        //args: '-f'
-      //}));
-  //};
+    signatureFiles.push(fullname + '.js.sig');
+    signatureFiles.push(fullname + '.min.js.sig');
+  }
+  var addFiles = function() {
+    var pjson = require('../../package.json');
+    return gulp.src(buildFiles)
+      .pipe(git.add({
+        args: '-f'
+      }));
+  };
 
-  //var buildCommit = function() {
-    //var pjson = require('../../package.json');
-    //return gulp.src(buildFiles)
-      //.pipe(git.commit('Build: ' + pjson.version, {
-        //args: ''
-      //}));
-  //};
+  var buildCommit = function() {
+    var pjson = require('../../package.json');
+    return gulp.src(buildFiles)
+      .pipe(git.commit('Build: ' + pjson.version, {
+        args: ''
+      }));
+  };
 
-  //gulp.task('release:add-signed-files', ['release:sign-built-files'], addFiles);
-  //gulp.task('release:add-built-files', addFiles);
-
-  //if (browser) {
-    //gulp.task('release:build-commit', [
-      //'release:add-signed-files'
-    //], buildCommit);
-  //} else {
-    //gulp.task('release:build-commit', [
-      //'release:add-built-files'
-    //], buildCommit);
-  //}
-
-  //gulp.task('release:version-commit', function() {
-    //var pjson = require('../../package.json');
-    //return gulp.src(releaseFiles)
-      //.pipe(git.commit('Bump package version to ' + pjson.version, {
-        //args: ''
-      //}));
-  //});
-
-  //gulp.task('release:push', function(cb) {
-    //git.push('bitpay', 'master', {
-      //args: ''
-    //}, cb);
-  //});
-
-  //gulp.task('release:push-tag', function(cb) {
-    //var pjson = require('../../package.json');
-    //var name = 'v' + pjson.version;
-    //git.tag(name, 'Release ' + name, function() {
-      //git.push('bitpay', name, cb);
-    //});
-  //});
-
-  //gulp.task('release:publish', shell.task([
-    //'npm publish'
-  //]));
-
-
-  //// requires https://hub.github.com/
-  //var release = function(importance, cb) {
-    //var bumper = 'release:bump:' + importance;
-    //return runsequence(
-      //// Checkout the release temporal branch
-      //'release:checkout-releases',
-      //// Run npm install
-      //'release:install',
-      //// Run tests with gulp test
-      //'test',
-      //// Update package.json and bower.json
-      //bumper,
-      //// build browser files
-      //browser ? 'browser' : 'noop',
-      //// Commit 
-      //'release:build-commit',
-      //// Run git push bitpay $VERSION
-      //'release:push-tag',
-      //// Run npm publish
-      //'release:publish',
-      //// Checkout the `master` branch
-      //'release:checkout-master',
-      //// Bump package.json and bower.json, again
-      //bumper,
-      //// Version commit with no binary files to master
-      //'release:version-commit',
-      //// Push to master
-      //'release:push',
-      //// remove release branch
-      //'release:cleanup',
-      //cb);
-  //};
-
-  //['patch', 'minor', 'major'].forEach(function(importance) {
-    //gulp.task('release:' + importance, function(cb) {
-      //release(importance, cb);
-    //});
-    //gulp.task('release:bump:' + importance, function() {
-      //bump_version(importance);
-    //});
-  //});
-  //gulp.task('release', ['release:patch']);
-
-
-  task['test:browser'] = 
-    gulp.series(task['browser:uncompressed'], task['browser:maketests'], task['test:karma']);
-
+  gulp.task('release:add-signed-files', ['release:sign-built-files'], addFiles);
+  gulp.task('release:add-built-files', addFiles);
 
   if (browser) {
-    task['test']= gulp.series(task['test:node'], task['test:browser']);
+    gulp.task('release:build-commit', [
+      'release:add-signed-files'
+    ], buildCommit);
   } else {
-    task['test']= task['test:node'];
+    gulp.task('release:build-commit', [
+      'release:add-built-files'
+    ], buildCommit);
   }
-  task['default']= task['test'];
-  return  task;
+
+  gulp.task('release:version-commit', function() {
+    var pjson = require('../../package.json');
+    return gulp.src(releaseFiles)
+      .pipe(git.commit('Bump package version to ' + pjson.version, {
+        args: ''
+      }));
+  });
+
+  gulp.task('release:push', function(cb) {
+    git.push('litecoin-project', 'master', {
+      args: ''
+    }, cb);
+  });
+
+  gulp.task('release:push-tag', function(cb) {
+    var pjson = require('../../package.json');
+    var name = 'v' + pjson.version;
+    git.tag(name, 'Release ' + name, function() {
+      git.push('litecoin-project', name, cb);
+    });
+  });
+
+  gulp.task('release:publish', shell.task([
+    'npm publish'
+  ]));
+
+
+  // requires https://hub.github.com/
+  var release = function(importance, cb) {
+    var bumper = 'release:bump:' + importance;
+    return runsequence(
+      // Checkout the release temporal branch
+      'release:checkout-releases',
+      // Run npm install
+      'release:install',
+      // Run tests with gulp test
+      'test',
+      // Update package.json and bower.json
+      bumper,
+      // build browser files
+      browser ? 'browser' : 'noop',
+      // Commit 
+      'release:build-commit',
+      // Run git push litecoin-project $VERSION
+      'release:push-tag',
+      // Run npm publish
+      'release:publish',
+      // Checkout the `master` branch
+      'release:checkout-master',
+      // Bump package.json and bower.json, again
+      bumper,
+      // Version commit with no binary files to master
+      'release:version-commit',
+      // Push to master
+      'release:push',
+      // remove release branch
+      'release:cleanup',
+      cb);
+  };
+
+  ['patch', 'minor', 'major'].forEach(function(importance) {
+    gulp.task('release:' + importance, function(cb) {
+      release(importance, cb);
+    });
+    gulp.task('release:bump:' + importance, function() {
+      bump_version(importance);
+    });
+  });
+  gulp.task('release', ['release:patch']);
+
+
+
 }
 
 module.exports = startGulp;
-
