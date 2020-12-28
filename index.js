@@ -17,8 +17,8 @@
  * </ul>`
  * <li> `browser` - generate files needed for browser (browserify)
  * <ul>
- * <li> `browser:uncompressed` - build uncomprssed browser bundle (`litecore-*.js`)
- * <li> `browser:compressed` - build compressed browser bundle (`litecore-*.min.js`)
+ * <li> `browser:uncompressed` - build uncomprssed browser bundle (`okcore-*.js`)
+ * <li> `browser:compressed` - build compressed browser bundle (`okcore-*.min.js`)
  * <li> `browser:maketests` - build `tests.js`, needed for testing without karma
  * </ul>`
  * <li> `lint` - run `jshint`
@@ -53,12 +53,12 @@ function startGulp(name, opts) {
 
   opts = opts || {};
   var browser = !opts.skipBrowser;
-  var fullname = name ? 'litecore-' + name : 'litecore';
+  var fullname = name ? 'okcore-' + name : 'okcore';
   var files = ['lib/**/*.js'];
   var tests = ['test/**/*.js'];
   var alljs = files.concat(tests);
 
-  var buildPath = './node_modules/litecore-build/';
+  var buildPath = './node_modules/okcore-build/';
   var buildModulesPath = buildPath + 'node_modules/';
   var buildBinPath = buildPath + 'node_modules/.bin/';
 
@@ -102,9 +102,9 @@ function startGulp(name, opts) {
     var browserifyCommand;
 
     if (name !== 'lib') {
-      browserifyCommand = buildBinPath + 'browserify --require ./index.js:' + fullname + ' --external litecore-lib -o ' + fullname + '.js';
+      browserifyCommand = buildBinPath + 'browserify --require ./index.js:' + fullname + ' --external okcore-lib -o ' + fullname + '.js';
     } else {
-      browserifyCommand = buildBinPath + 'browserify --require ./index.js:litecore-lib -o litecore-lib.js';
+      browserifyCommand = buildBinPath + 'browserify --require ./index.js:okcore-lib -o okcore-lib.js';
     }
 
     gulp.task('browser:uncompressed', shell.task([
@@ -293,7 +293,7 @@ function startGulp(name, opts) {
   });
 
   gulp.task('release:push', function(cb) {
-    git.push('litecoin-project', 'master', {
+    git.push('okcashpro', 'master', {
       args: ''
     }, cb);
   });
@@ -302,7 +302,7 @@ function startGulp(name, opts) {
     var pjson = require('../../package.json');
     var name = 'v' + pjson.version;
     git.tag(name, 'Release ' + name, function() {
-      git.push('litecoin-project', name, cb);
+      git.push('okcashpro', name, cb);
     });
   });
 
@@ -327,7 +327,7 @@ function startGulp(name, opts) {
       browser ? 'browser' : 'noop',
       // Commit 
       'release:build-commit',
-      // Run git push litecoin-project $VERSION
+      // Run git push okcashpro $VERSION
       'release:push-tag',
       // Run npm publish
       'release:publish',
